@@ -1,0 +1,18 @@
+---
+applications:
+  - name: abap-inspector
+    memory: 256M
+    disk_quota: 512M
+    instances: 1
+    buildpacks:
+      - nodejs_buildpack
+    health-check-type: http
+    health-check-http-endpoint: /
+    health-check-timeout: 60
+    services:
+      - abap-inspector-connectivity
+      - destination-service
+    env:
+      NODE_ENV: production
+      ANTHROPIC_API_KEY: ""
+ 
