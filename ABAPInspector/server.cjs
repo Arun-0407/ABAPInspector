@@ -2,12 +2,31 @@ const express    = require('express');
 const cors       = require('cors');
 const multer     = require('multer');
 const http       = require('http');
+const https      = require('https');
 const crypto     = require('crypto');
+const fs         = require('fs');
 const Anthropic  = require('@anthropic-ai/sdk');
 const path       = require('path');
 const helmet     = require('helmet');
 const rateLimit  = require('express-rate-limit');
 const { jsonrepair } = require('jsonrepair');
+
+// ── Load .env file for local dev (no extra package needed) ───────────────────
+try {
+  const envFile = path.join(__dirname, '.env');
+  if (fs.existsSync(envFile)) {
+    fs.readFileSync(envFile, 'utf8').split('\n').forEach(line => {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) return;
+      const eq = t.indexOf('=');
+      if (eq < 1) return;
+      const k = t.slice(0, eq).trim();
+      const v = t.slice(eq + 1).trim();
+      if (k && !(k in process.env)) process.env[k] = v;
+    });
+    console.log('[ENV] .env loaded');
+  }
+} catch (e) { console.warn('[ENV] Could not load .env:', e.message); }
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -706,13 +725,50 @@ async function s4Get(reqPath, cfg, accept = 'text/plain') {
   const fullPath = `${reqPath}${sep}sap-client=${cfg.client || '100'}`;
 
   if (cfg.virtualHost) {
-    // On-premise / OnPremise destination: route through Cloud Connector proxy
+    // On-premise: route through Cloud Connector proxy
+    // Guard: SCC only works on BTP where connCreds (connectivity service) is bound
+    if (!connCreds) {
+      throw new Error(
+        'You are using SCC / Virtual Host mode, but Cloud Connector is not available here.\n\n' +
+        'Fix: In the S/4HANA panel switch to the "Direct HTTPS" tab and enter:\n' +
+        '  • System URL: https://your-s4-host:44300\n' +
+        '  • SAP Client, Username, Password\n\n' +
+        'SCC mode only works when deployed to SAP BTP Cloud Foundry with the Connectivity service bound.'
+      );
+    }
     return proxyRequest(cfg, fullPath, accept);
   }
 
-  // Direct HTTPS (local dev or Internet-type BTP destination or direct host)
+  // Direct HTTPS — local dev or internet-reachable S/4HANA
   if (!cfg.host) throw new Error('Neither virtualHost nor host is configured — check your connection settings');
-  return fetch(`${cfg.host}${fullPath}`, { headers: s4Headers(cfg, accept) });
+
+  // Support self-signed SSL certs: set NODE_TLS_REJECT_UNAUTHORIZED=0 in .env
+  const fetchOpts = { headers: s4Headers(cfg, accept) };
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+    fetchOpts.agent = new https.Agent({ rejectUnauthorized: false });
+  }
+
+  try {
+    return await fetch(`${cfg.host}${fullPath}`, fetchOpts);
+  } catch (err) {
+    const msg = err.message || '';
+    if (/CERT|SSL|certificate|UNABLE_TO_VERIFY/i.test(msg)) {
+      throw new Error(
+        `SSL Certificate Error: "${cfg.host}" uses a self-signed or untrusted certificate.\n\n` +
+        `Fix: Open the .env file in the project root and uncomment:\n` +
+        `  NODE_TLS_REJECT_UNAUTHORIZED=0\n` +
+        `Then restart: npm run dev\n\nOriginal: ${msg}`
+      );
+    }
+    if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET/i.test(msg)) {
+      throw new Error(
+        `Cannot reach S/4HANA at "${cfg.host}".\n` +
+        `• Check the URL is correct (https://hostname:44300)\n` +
+        `• Make sure port 44300 is open / not blocked by firewall or VPN\n\nOriginal: ${msg}`
+      );
+    }
+    throw err;
+  }
 }
 
 function parseADTRefs(xml) {
