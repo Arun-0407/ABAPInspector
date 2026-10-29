@@ -725,17 +725,7 @@ async function s4Get(reqPath, cfg, accept = 'text/plain') {
   const fullPath = `${reqPath}${sep}sap-client=${cfg.client || '100'}`;
 
   if (cfg.virtualHost) {
-    // On-premise: route through Cloud Connector proxy
-    // Guard: SCC only works on BTP where connCreds (connectivity service) is bound
-    if (!connCreds) {
-      throw new Error(
-        'You are using SCC / Virtual Host mode, but Cloud Connector is not available here.\n\n' +
-        'Fix: In the S/4HANA panel switch to the "Direct HTTPS" tab and enter:\n' +
-        '  • System URL: https://your-s4-host:44300\n' +
-        '  • SAP Client, Username, Password\n\n' +
-        'SCC mode only works when deployed to SAP BTP Cloud Foundry with the Connectivity service bound.'
-      );
-    }
+    // On-premise: route through Cloud Connector proxy (BTP only)
     return proxyRequest(cfg, fullPath, accept);
   }
 

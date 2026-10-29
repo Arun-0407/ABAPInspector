@@ -74,10 +74,10 @@ export default function S4Panel({ s4Config, onS4ConfigChange, onAnalyze, onBack,
     }).catch(() => {});
   }, []);
   // connMode: 'dest' | 'scc' | 'direct'
-  // Default: 'direct' for local dev. 'scc' only if a virtualHost was previously saved. 'dest' only on BTP.
+  // Always default to 'direct' unless a previous session already used dest/scc
   const [connMode, setConnMode] = useState(
-    s4Config?.useDestination        ? 'dest'   :
-    s4Config?.displayInfo?.virtualHost ? 'scc' : 'direct'
+    s4Config?.useDestination           ? 'dest'   :
+    s4Config?.displayInfo?.virtualHost ? 'scc'    : 'direct'
   );
 
   const [connecting, setConnecting]   = useState(false);
